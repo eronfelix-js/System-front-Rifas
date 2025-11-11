@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useAuth } from "@/lib/auth-context"
-import { criarRifa, uploadImagemRifa } from "@/lib/api"
+import { criarRifa, uploadImagemRifa, type TipoRifa } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Ticket } from "lucide-react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -30,6 +31,7 @@ export default function AdminRifasPage() {
     precoPorNumero: "",
     dataLimite: "",
     sortearAoVenderTudo: true,
+    tipoRifa: "PAGA_AUTOMATICA" as TipoRifa,
   })
 
   // Verifica se o usuário é admin
@@ -100,6 +102,13 @@ export default function AdminRifasPage() {
     }))
   }
 
+  const handleTipoRifaChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tipoRifa: value as TipoRifa
+    }))
+  }
+
   // Função para criar a rifa com imagem em uma única requisição
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,6 +136,7 @@ export default function AdminRifasPage() {
         precoPorNumero: parseFloat(formData.precoPorNumero),
         dataLimite: formData.dataLimite,
         sortearAoVenderTudo: formData.sortearAoVenderTudo,
+        tipo: formData.tipoRifa,
       }, selectedImage || undefined)
 
       console.log("Rifa criada com sucesso:", rifaCriada)
@@ -139,6 +149,7 @@ export default function AdminRifasPage() {
         precoPorNumero: "",
         dataLimite: "",
         sortearAoVenderTudo: true,
+        tipoRifa: "PAGA_AUTOMATICA",
       })
       setSelectedImage(null)
       setImageUrl("")
@@ -253,6 +264,25 @@ export default function AdminRifasPage() {
               onChange={handleInputChange}
               required
             />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="tipoRifa" className="text-sm font-medium">
+              Tipo de Rifa
+            </label>
+            <Select value={formData.tipoRifa} onValueChange={handleTipoRifaChange}>
+              <SelectTrigger id="tipoRifa">
+                <SelectValue placeholder="Escolha o tipo de rifa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="GRATUITA">Gratuita</SelectItem>
+                <SelectItem value="PAGA_MANUAL">Paga Manual</SelectItem>
+                <SelectItem value="PAGA_AUTOMATICA">Paga Automática</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Gratuita: Sem pagamento | Paga Manual: Análise de pagamento | Paga Automática: Integração com gateway de pagamento
+            </p>
           </div>
 
           <div className="flex items-center justify-between space-x-2">

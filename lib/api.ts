@@ -2,6 +2,7 @@ const API_BASE_URL =  "http://localhost:8080/api/v1"
 
 // Tipos baseados na API
 export type RoleUsuario = "CLIENTE" | "VENDEDOR" | "ADMIN"
+export type TipoRifa = "GRATUITA" | "PAGA_MANUAL" | "PAGA_AUTOMATICA"
 
 export interface Usuario {
   id: string
@@ -229,6 +230,7 @@ export async function criarRifa(
     quantidadeNumeros: number
     dataLimite: string
     sortearAoVenderTudo: boolean
+    tipo: TipoRifa
   },
   imagem?: File
 ): Promise<Rifa> {

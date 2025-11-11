@@ -24,13 +24,37 @@ export default function CheckoutPage({ params }: { params: { id: string } }) {
       return
     }
 
-    getCompra(token, params.id)
-      .then(setCompra)
-      .catch((error) => {
+    let mounted = true
+    let intervalId: NodeJS.Timeout | null = null
+
+    const fetchCompra = async () => {
+      try {
+        const c = await getCompra(token, params.id)
+        if (!mounted) return
+        setCompra(c)
+        // If purchase already paid, stop polling
+        if (c.status === "PAGO" && intervalId) {
+          clearInterval(intervalId)
+        }
+      } catch (error) {
         console.error("[v0] Erro ao carregar compra:", error)
-        router.push("/")
-      })
-      .finally(() => setLoading(false))
+        // If not found or auth error, redirect home
+        // don't redirect immediately on transient errors
+      }
+    }
+
+    // initial load
+    fetchCompra().finally(() => mounted && setLoading(false))
+
+    // poll every 5 seconds until payment confirmed
+    intervalId = setInterval(() => {
+      fetchCompra()
+    }, 5000)
+
+    return () => {
+      mounted = false
+      if (intervalId) clearInterval(intervalId)
+    }
   }, [params.id, token, router])
 
   const copyPixCode = () => {
@@ -73,8 +97,8 @@ export default function CheckoutPage({ params }: { params: { id: string } }) {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="text-center">
-            <Badge className="mb-4" variant={compra.status === "PAGA" ? "default" : "secondary"}>
-              {compra.status === "PAGA" ? (
+            <Badge className="mb-4" variant={compra.status === "PAGO" ? "default" : "secondary"}>
+              {compra.status === "PAGO" ? (
                 <>
                   <CheckCircle2 className="h-3 w-3 mr-1" />
                   Pagamento Confirmado
@@ -87,10 +111,10 @@ export default function CheckoutPage({ params }: { params: { id: string } }) {
               )}
             </Badge>
             <h1 className="text-3xl font-bold mb-2">
-              {compra.status === "PAGA" ? "Pagamento Confirmado!" : "Finalize seu Pagamento"}
+              {compra.status === "PAGO" ? "Pagamento Confirmado!" : "Finalize seu Pagamento"}
             </h1>
             <p className="text-muted-foreground">
-              {compra.status === "PAGA"
+              {compra.status === "PAGO"
                 ? "Seus números foram confirmados. Boa sorte!"
                 : "Escaneie o QR Code ou copie o código PIX para pagar"}
             </p>
@@ -115,7 +139,7 @@ export default function CheckoutPage({ params }: { params: { id: string } }) {
               </div>
             </div>
 
-            {compra.status === "RESERVADA" && compra.pagamento && (
+            {compra.status === "PENDENTE" && compra.pagamento && (
               <>
                 <div className="border-t pt-6">
                   <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
@@ -162,7 +186,7 @@ export default function CheckoutPage({ params }: { params: { id: string } }) {
               </>
             )}
 
-            {compra.status === "PAGA" && (
+            {compra.status === "PAGO" && (
               <div className="border-t pt-6">
                 <h3 className="font-semibold mb-3">Seus Números da Sorte:</h3>
                 <div className="flex flex-wrap gap-2">
