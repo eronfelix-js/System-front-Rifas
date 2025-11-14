@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Ticket, User, Menu, LogOut, LayoutDashboard, ShoppingBag, Settings } from "lucide-react"
+import { Ticket, User, Menu, LogOut, LayoutDashboard, ShoppingBag, Settings, FileUp }from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import {
@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { use } from "react"
 
 export function Header() {
   const { user, logout } = useAuth()
@@ -65,6 +66,15 @@ export function Header() {
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
+                  )}
+                   {user.role === "VENDEDOR" && (
+                    <DropdownMenuItem asChild>
+                        <Link href="/comprovante" className="cursor-pointer">
+                          <FileUp className="mr-2 h-4 w-4" />
+                      
+                          Comprovantes
+                        </Link>
+                      </DropdownMenuItem>
                   )}
                   {user.role === "ADMIN" && (
                     <DropdownMenuItem asChild>

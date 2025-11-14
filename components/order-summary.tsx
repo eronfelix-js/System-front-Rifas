@@ -37,15 +37,60 @@ export function OrderSummary({ rifa, numerosSelecionados, onClearNumeros }: Orde
 
     setLoading(true)
     try {
-      const compra = await reservarNumeros(token, {
+      const payload = {
         rifaId: rifa.id,
         quantidade: selectedCount,
         numeros: numerosSelecionados.length > 0 ? numerosSelecionados : undefined,
-      })
+      }
 
-      const compraComPix = await gerarPagamentoPix(token, compra.id)
+      // Log payload sent to reservarNumeros (não inclui token)
+      console.debug('[v0] reservarNumeros payload:', payload)
 
-      router.push(`/checkout/${compraComPix.id}`)
+  const compra = await reservarNumeros(token, payload)
+  // Log response from reservarNumeros
+  console.debug('[v0] reservarNumeros response:', compra)
+      // Decide next step based on rifa type
+      switch (rifa.tipo) {
+        case "PAGA_AUTOMATICA": {
+          // Generate PIX payment and go to checkout with payment info
+          // Log attempt to generate PIX for this compra
+          console.debug('[v0] gerarPagamentoPix request for compraId:', compra.id)
+          const pagamentoResp = await gerarPagamentoPix(token, compra.id)
+          // pagamentoResp pode ser PagamentoPixResponse ou FallbackPagamentoResponse
+          const nextId = (pagamentoResp as any).compraId || compra.id
+
+          // If backend returned a fallback (service unavailable) with manual payment data,
+          // persist it to localStorage so the checkout page can show instructions.
+          try {
+            const maybeFallback = pagamentoResp as any
+            console.debug('[v0] gerarPagamentoPix response:', maybeFallback)
+            if (maybeFallback && maybeFallback.erro) {
+              try {
+                localStorage.setItem(`pagamento_fallback_${compra.id}`, JSON.stringify(maybeFallback))
+                console.debug('[v0] fallback stored for compraId=', compra.id)
+              } catch (e) {
+                console.debug('[v0] failed to store fallback in localStorage', e)
+              }
+            }
+          } catch (e) {
+            console.debug('[v0] error inspecting pagamentoResp', e)
+          }
+
+          router.push(`/checkout/${nextId}`)
+          break
+        }
+        case "PAGA_MANUAL": {
+          // For manual payments, backend expects user to follow manual instructions in checkout
+          router.push(`/checkout/${compra.id}`)
+          break
+        }
+        case "GRATUITA":
+        default: {
+          // Free participation: redirect to checkout (should show confirmed numbers)
+          router.push(`/checkout/${compra.id}`)
+          break
+        }
+      }
     } catch (error) {
       console.error("[v0] Erro ao finalizar compra:", error)
       alert("Erro ao processar compra. Tente novamente.")

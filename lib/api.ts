@@ -26,6 +26,7 @@ export interface Rifa {
   id: string
   titulo: string
   descricao: string
+  tipo?: TipoRifa
   imagemUrl?: string
   precoPorNumero: number
   quantidadeNumeros: number
@@ -52,6 +53,64 @@ export interface Compra {
     valor: number
     status: string
   }
+}
+
+export interface ReservaResponse{
+  compraId: string;
+  rifaId: string;
+  tituloRifa: string;
+  tipoRifa: TipoRifa;
+  quantidadeNumeros: number;
+  numeros: number[];
+  valorTotal: number;
+  status: 'PENDENTE' | 'CONFIRMADO' | 'PAGO' | 'EXPIRADO' | 'CANCELADO';
+  dataExpiracao?: string;
+  minutosParaExpirar?: number;
+
+   // Para rifas PAGA_MANUAL
+  pagamentoManual?: {
+    chavePix: string;
+    nomeVendedor: string;
+    emailVendedor: string;
+    valor: number;
+    mensagem: string;
+  };
+  
+  // Para rifas PAGA_AUTOMATICA
+  pagamento?: {
+    id: string;
+    qrCode: string;
+    qrCodePayload: string;
+    status: 'AGUARDANDO' | 'APROVADO' | 'RECUSADO' | 'EXPIRADO';
+    dataExpiracao: string;
+  };
+}
+
+export interface PagamentoPixResponse {
+  id: string
+  compraId?: string
+  qrCode?: string
+  qrCodePayload?: string
+  qrCodeBase64?: string
+  status?: string
+  dataExpiracao?: string
+}
+
+export interface FallbackPagamentoResponse {
+  erro: string
+  mensagem: string
+  chavePix?: string
+  nomeVendedor?: string
+  valorPagar?: number
+  compraId?: string
+  urlUploadComprovante?: string
+}
+
+export interface ComprovanteUploadResponse {
+  compraId: string;
+  comprovanteUrl: string;
+  dataUpload: string;
+  mensagem: string;
 }
 
 export interface Sorteio {
@@ -133,7 +192,7 @@ export async function getRifas(): Promise<Rifa[]> {
   }
 
   try {
-    console.log("[v0] Buscando rifas em:", `${API_BASE_URL}/rifas`)
+    console.log("Buscando rifas em:", `${API_BASE_URL}/rifas`)
     const response = await fetch(`${API_BASE_URL}/rifas`)
     const data = (await handleResponse(response)) as { content?: any[] } | any[]
     const items = Array.isArray(data) ? data : Array.isArray(data?.content) ? data.content : []
@@ -358,13 +417,18 @@ export async function reservarNumeros(
   },
 ): Promise<Compra> {
   try {
-    const response = await fetch(`${API_BASE_URL}/compras/reservar`, {
+    const url = `${API_BASE_URL}/compras/reservar`
+    const bodyString = JSON.stringify(data)
+    // Log request details (without token)
+    console.debug('[v0] POST %s body: %s', url, bodyString)
+
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(data),
+      body: bodyString,
     })
     // Captura o Location antes de ler o corpo
     const locationHeader = response.headers.get("Location") || response.headers.get("location")
@@ -396,13 +460,65 @@ export async function reservarNumeros(
   }
 }
 
-export async function gerarPagamentoPix(token: string, compraId: string): Promise<Compra> {
+export async function uploadComprovante(
+  token: string,
+  compraId: string,
+  arquivo: File
+): Promise<ComprovanteUploadResponse> {
   try {
-    const response = await fetch(`${API_BASE_URL}/compras/${compraId}/pagamento/pix`, {
+    const formData = new FormData();
+    formData.append('comprovante', arquivo);
+
+    const response = await fetch(`${API_BASE_URL}/compras/${compraId}/comprovante`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    return handleResponse(response);
+  } catch (error) {
+    console.error('[v0] Erro ao enviar comprovante:', error);
+    throw error;
+  }
+}
+
+/**
+ * Consultar status de pagamento PIX
+ */
+export async function consultarPagamentoPix(
+  token: string,
+  compraId: string
+): Promise<ReservaResponse['pagamento']> {
+  try {
+    const url = `${API_BASE_URL}/compras/${compraId}/pagamento`
+    console.debug('[v0] GET %s', url)
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    return handleResponse(response);
+  } catch (error) {
+    console.error('[v0] Erro ao consultar pagamento:', error);
+    throw error;
+  }
+}
+
+export async function gerarPagamentoPix(token: string, compraId: string): Promise<PagamentoPixResponse | FallbackPagamentoResponse> {
+  try {
+    const url = `${API_BASE_URL}/compras/${compraId}/pagamento/pix`
+    console.debug('[v0] POST %s (no body)', url)
+    const response = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     })
-    return handleResponse(response)
+  const handled = await handleResponse<PagamentoPixResponse | FallbackPagamentoResponse>(response)
+    // Log response body
+    console.debug('[v0] POST %s response: %o', url, handled)
+    return handled
   } catch (error) {
     console.error("[v0] Erro ao gerar pagamento:", error)
     throw error
