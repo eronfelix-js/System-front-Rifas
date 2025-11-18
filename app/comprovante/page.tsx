@@ -10,27 +10,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
 import Image from "next/image"
 import { useToast } from "@/hooks/use-toast"
-import {CheckCircle, Clock, XCircle } from "lucide-react"
-
-interface CompraPendente {
-  id: string
-  rifaTitulo: string
-  compradorNome: string
-  compradorEmail: string
-  numeros: number[]
-  valorTotal: number
-  comprovanteUrl: string
-  dataUpload: string
-  status: "PENDENTE" | "CONFIRMADO" | "CANCELADO"
-}
+import { getComprovantesPendentes, getMinhasRifas, aprovarCompra, rejeitarCompra, type Compra, type Rifa } from "@/lib/api"
+import { CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react"
 
 export default function ComprovantesPage() {
   const { user, token } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const [compras, setCompras] = useState<CompraPendente[]>([])
+  const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("pendentes")
+  const [observacoes, setObservacoes] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!user || user.role !== "VENDEDOR") {
@@ -38,43 +28,60 @@ export default function ComprovantesPage() {
       return
     }
 
-    // Mock data para demonstração
-    setCompras([
-      {
-        id: "1",
-        rifaTitulo: "iPhone 15 Pro Max 256GB",
-        compradorNome: "Maria Santos",
-        compradorEmail: "maria@example.com",
-        numeros: [123, 456, 789],
-        valorTotal: 30.0,
-        comprovanteUrl: "/comprovante-pix.jpg",
-        dataUpload: new Date().toISOString(),
-        status: "PENDENTE",
-      },
-      {
-        id: "2",
-        rifaTitulo: "PlayStation 5 + 2 Controles",
-        compradorNome: "Carlos Silva",
-        compradorEmail: "carlos@example.com",
-        numeros: [45, 67, 89, 101],
-        valorTotal: 20.0,
-        comprovanteUrl: "/comprovante-transferencia.jpg",
-        dataUpload: new Date(Date.now() - 3600000).toISOString(),
-        status: "PENDENTE",
-      },
-    ])
-    setLoading(false)
-  }, [user, router])
+    if (token) {
+      loadComprovantes()
+    }
+  }, [user, token, router])
+
+  const loadComprovantes = async () => {
+    if (!token) return
+
+    try {
+      // Primeiro busca todas as rifas do vendedor
+      const rifas = await getMinhasRifas(token)
+      
+      // Depois busca comprovantes pendentes para cada rifa
+      let todasAsCompras: Compra[] = []
+      
+      for (const rifa of rifas) {
+        try {
+          const compras = await getComprovantesPendentes(token, rifa.id)
+          todasAsCompras = [...todasAsCompras, ...compras]
+        } catch (error) {
+          console.error(`Erro ao buscar comprovantes da rifa ${rifa.id}:`, error)
+        }
+      }
+      
+      setCompras(todasAsCompras)
+    } catch (error) {
+      console.error("Erro ao carregar comprovantes:", error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível carregar os comprovantes",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleAprovar = async (compraId: string) => {
+    if (!token) return
+
     try {
-      // Simular aprovação
-      setCompras((prev) => prev.map((c) => (c.id === compraId ? { ...c, status: "CONFIRMADO" as const } : c)))
+      await aprovarCompra(token, compraId, observacoes[compraId])
+      setCompras((prev) => prev.filter((c) => c.id !== compraId))
+      setObservacoes((prev) => {
+        const newObs = { ...prev }
+        delete newObs[compraId]
+        return newObs
+      })
       toast({
         title: "Compra Aprovada!",
         description: "O comprador foi notificado e os números foram confirmados.",
       })
     } catch (error) {
+      console.error("Erro ao aprovar:", error)
       toast({
         title: "Erro",
         description: "Não foi possível aprovar a compra",
@@ -84,14 +91,22 @@ export default function ComprovantesPage() {
   }
 
   const handleRejeitar = async (compraId: string) => {
+    if (!token) return
+
     try {
-      // Simular rejeição
-      setCompras((prev) => prev.map((c) => (c.id === compraId ? { ...c, status: "CANCELADO" as const } : c)))
+      await rejeitarCompra(token, compraId, observacoes[compraId])
+      setCompras((prev) => prev.filter((c) => c.id !== compraId))
+      setObservacoes((prev) => {
+        const newObs = { ...prev }
+        delete newObs[compraId]
+        return newObs
+      })
       toast({
         title: "Compra Rejeitada",
         description: "O comprador foi notificado e os números foram liberados.",
       })
     } catch (error) {
+      console.error("Erro ao rejeitar:", error)
       toast({
         title: "Erro",
         description: "Não foi possível rejeitar a compra",
@@ -103,9 +118,6 @@ export default function ComprovantesPage() {
   if (!user || user.role !== "VENDEDOR") {
     return null
   }
-
-  const comprasPendentes = compras.filter((c) => c.status === "PENDENTE")
-  const comprasProcessadas = compras.filter((c) => c.status !== "PENDENTE")
 
   return (
     <div className="min-h-screen bg-background py-8">
@@ -126,9 +138,9 @@ export default function ComprovantesPage() {
           <TabsList className="mb-6">
             <TabsTrigger value="pendentes">
               Pendentes
-              {comprasPendentes.length > 0 && (
+              {compras.length > 0 && (
                 <Badge variant="destructive" className="ml-2">
-                  {comprasPendentes.length}
+                  {compras.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -136,27 +148,36 @@ export default function ComprovantesPage() {
           </TabsList>
 
           <TabsContent value="pendentes" className="space-y-4">
-            {comprasPendentes.length === 0 ? (
+            {compras.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">Nenhum comprovante pendente</p>
+                  {loading ? (
+                    <>
+                      <div className="h-12 w-12 animate-spin rounded-full border-4 border-muted border-t-primary mx-auto mb-4" />
+                      <p className="text-muted-foreground">Carregando comprovantes...</p>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-muted-foreground">Nenhum comprovante pendente</p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             ) : (
-              comprasPendentes.map((compra) => (
+              compras.map((compra) => (
                 <Card key={compra.id}>
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
-                        <CardTitle className="text-lg">{compra.rifaTitulo}</CardTitle>
+                        <CardTitle className="text-lg">{compra.rifa?.titulo ?? "Sem Titulo"}</CardTitle>
                         <CardDescription>
-                          {compra.compradorNome} • {compra.compradorEmail}
+                          {compra.comprador?.nome ?? "Comprador Desconhecido"} • {compra.comprador?.email ?? "sem-email@example.com"}
                         </CardDescription>
                       </div>
                       <Badge variant="secondary">
                         <Clock className="h-3 w-3 mr-1" />
-                        Pendente
+                        {compra.status}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -165,14 +186,21 @@ export default function ComprovantesPage() {
                       <div className="space-y-4">
                         <div>
                           <p className="text-sm text-muted-foreground mb-2">Comprovante:</p>
-                          <div className="border rounded-lg overflow-hidden bg-muted">
-                            <Image
-                              src={compra.comprovanteUrl || "/placeholder.svg"}
-                              alt="Comprovante"
-                              width={400}
-                              height={500}
-                              className="w-full"
-                            />
+                          <div className="border rounded-lg overflow-hidden bg-muted min-h-64 flex items-center justify-center">
+                            {compra.comprovante_url ? (
+                              <Image
+                                src={compra.comprovante_url}
+                                alt="Comprovante"
+                                width={400}
+                                height={500}
+                                className="w-full h-auto"
+                              />
+                            ) : (
+                              <div className="text-center">
+                                <AlertCircle className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+                                <p className="text-sm text-muted-foreground">Comprovante não disponível</p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -186,7 +214,7 @@ export default function ComprovantesPage() {
                         <div>
                           <p className="text-sm text-muted-foreground mb-2">Números:</p>
                           <div className="flex flex-wrap gap-2">
-                            {compra.numeros.map((num) => (
+                            {compra.numeros.map((num: number) => (
                               <Badge key={num} variant="outline">
                                 {num.toString().padStart(4, "0")}
                               </Badge>
@@ -195,8 +223,24 @@ export default function ComprovantesPage() {
                         </div>
 
                         <div>
-                          <p className="text-sm text-muted-foreground">Enviado em:</p>
-                          <p className="text-sm">{new Date(compra.dataUpload).toLocaleString("pt-BR")}</p>
+                          <p className="text-sm text-muted-foreground">Data da Compra:</p>
+                          <p className="text-sm">{new Date(compra.dataCriacao).toLocaleString("pt-BR")}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-2">Observação (opcional):</p>
+                          <textarea
+                            value={observacoes[compra.id] || ""}
+                            onChange={(e) =>
+                              setObservacoes((prev) => ({
+                                ...prev,
+                                [compra.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Adicione uma observação para o comprador..."
+                            className="w-full px-3 py-2 border rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                            rows={3}
+                          />
                         </div>
 
                         <div className="flex gap-3 pt-4">
@@ -207,7 +251,7 @@ export default function ComprovantesPage() {
                           <Button
                             onClick={() => handleRejeitar(compra.id)}
                             variant="destructive"
-                            className="flex-1 bg-transparent"
+                            className="flex-1"
                           >
                             <XCircle className="h-4 w-4 mr-2" />
                             Rejeitar
@@ -222,45 +266,13 @@ export default function ComprovantesPage() {
           </TabsContent>
 
           <TabsContent value="processadas" className="space-y-4">
-            {comprasProcessadas.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <p className="text-muted-foreground">Nenhuma compra processada ainda</p>
-                </CardContent>
-              </Card>
-            ) : (
-              comprasProcessadas.map((compra) => (
-                <Card key={compra.id}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle className="text-lg">{compra.rifaTitulo}</CardTitle>
-                        <CardDescription>{compra.compradorNome}</CardDescription>
-                      </div>
-                      <Badge variant={compra.status === "CONFIRMADO" ? "default" : "destructive"}>
-                        {compra.status === "CONFIRMADO" ? (
-                          <>
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Aprovado
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="h-3 w-3 mr-1" />
-                            Rejeitado
-                          </>
-                        )}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex justify-between text-sm">
-                      <span>Valor: R$ {compra.valorTotal.toFixed(2)}</span>
-                      <span>{compra.numeros.length} números</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">
+                  Funcionalidade em desenvolvimento. Aqui aparecerão os comprovantes já processados.
+                </p>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

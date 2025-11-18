@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/lib/auth-context"
 import { getMinhasRifas, type Rifa } from "@/lib/api"
-import { Plus, TrendingUp, Users, DollarSign} from "lucide-react"
+import { Plus, TrendingUp, Users, DollarSign, Trash2, Trophy } from "lucide-react"
 import Link from "next/link"
+import { CancelRifaDialog } from "@/components/cancel-rifa-dialog"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -50,11 +51,21 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background py-8">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8">
+          <Button
+            onClick={() => router.push("/")}
+            variant="outline"
+            className="mb-6"
+          >
+            ← Voltar
+          </Button>
           <div>
             <h1 className="text-3xl font-bold">Dashboard</h1>
             <p className="text-muted-foreground">Gerencie suas rifas</p>
           </div>
+        </div>
+
+        <div className="flex justify-end mb-8">
           <Button asChild>
             <Link href={"/dashboard/rifas"}>
               <Plus className="mr-2 h-4 w-4" />
@@ -142,9 +153,30 @@ export default function DashboardPage() {
                       </p>
                       <p className="text-sm text-muted-foreground">{rifa.status}</p>
                     </div>
-                    <Button variant="outline" asChild>
-                      <Link href={`/rifa/${rifa.id}`}>Ver Detalhes</Link>
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" asChild>
+                        <Link href={`/rifa/${rifa.id}`}>Ver Detalhes</Link>
+                      </Button>
+                      <Button variant="secondary" asChild title="Realizar sorteio">
+                        <Link href={`/dashboard/rifas/sorteio/${rifa.id}`}>
+                          <Trophy className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                      <CancelRifaDialog
+                        rifa={rifa}
+                        onCancelSuccess={() => {
+                          setRifas(rifas.filter((r) => r.id !== rifa.id))
+                        }}
+                      >
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          title="Cancelar rifa"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </CancelRifaDialog>
+                    </div>
                   </div>
                 ))}
               </div>

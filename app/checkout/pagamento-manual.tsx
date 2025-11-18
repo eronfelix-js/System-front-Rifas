@@ -24,9 +24,30 @@ export function PagamentoManual({ reserva }: Props) {
   
   const { tempoRestante, expirado } = useTimer(reserva.minutosParaExpirar);
 
+  if (!reserva.pagamentoManual) {
+    return (
+      <Card className="p-6">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Erro de Configuração</strong>
+            <p className="mt-1">
+              Dados de pagamento manual não disponíveis. Entre em contato com o suporte.
+            </p>
+          </AlertDescription>
+        </Alert>
+      </Card>
+    );
+  }
+
+  const { chavePix, nomeVendedor, emailVendedor, valor } = reserva.pagamentoManual;
+
   const copiarChavePix = () => {
-    if (!reserva.pagamentoManual?.chavePix) return;
-    navigator.clipboard.writeText(reserva.pagamentoManual.chavePix);
+    if (!chavePix) {
+      toast.error('Chave PIX não disponível');
+      return;
+    }
+    navigator.clipboard.writeText(chavePix);
     toast.success('Chave PIX copiada!');
   };
 

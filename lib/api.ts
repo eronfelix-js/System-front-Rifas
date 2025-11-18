@@ -24,17 +24,36 @@ export interface RegistrarUsuarioRequest {
 
 export interface Rifa {
   id: string
+  usuarioId: string
+  nomeVendedor: string
+  emailVendedor: string
   titulo: string
   descricao: string
-  tipo?: TipoRifa
   imagemUrl?: string
-  precoPorNumero: number
   quantidadeNumeros: number
-  numerosVendidos: number
-  dataInicio: string
-  dataFim: string
+  precoPorNumero: number
+  valorTotal: number
   status: "ATIVA" | "COMPLETA" | "CANCELADA" | "SORTEADA"
-  vendedor: Usuario
+  dataInicio: string
+  dataLimite: string
+  dataSorteio?: string
+  numeroVencedor?: number
+  compradorVencedorId?: string
+  nomeVencedor?: string
+  sorteioAutomatico: boolean
+  sortearAoVenderTudo: boolean
+  dataCriacao: string
+  dataAtualizacao: string
+  tipo?: TipoRifa
+  repassarTaxaCliente: boolean
+  // Campos calculados/derivados (para compatibilidade com UI) - SEMPRE PRESENTES
+  numerosVendidos: number
+  vendedor?: {
+    id: string
+    nome: string
+    email: string
+    role: RoleUsuario
+  }
 }
 
 export interface Compra {
@@ -45,6 +64,7 @@ export interface Compra {
   valorTotal: number
   status: "PENDENTE" | "PAGO" | "CANCELADO" | "EXPIRADO"
   dataCriacao: string
+  comprovante_url?: string
   pagamento?: {
     id: string
     qrCode: string
@@ -115,10 +135,16 @@ export interface ComprovanteUploadResponse {
 
 export interface Sorteio {
   id: string
-  rifa: Rifa
+  rifaId: string
+  tituloRifa: string
   numeroSorteado: number
-  ganhador: Usuario
+  compradorVencedorId: string
+  nomeVencedor: string
+  emailVencedor: string
+  metodo: string
+  hashVerificacao: string
   dataSorteio: string
+  observacoes?: string
 }
 
 export interface ImagemUploadResponse {
@@ -142,6 +168,69 @@ export function enableMockMode() {
 
 export function isMockMode(): boolean {
   return useMockData
+}
+
+// Função para normalizar resposta de Rifa do backend
+function normalizarRifa(item: any): Rifa {
+  const imagemUrl: string | undefined =
+    item.imagemUrl || item.imagem || item.image || item.imageUrl || undefined
+
+  const precoPorNumero: number =
+    typeof item.precoPorNumero === "number"
+      ? item.precoPorNumero
+      : typeof item.valorNumero === "number"
+      ? item.valorNumero
+      : 0
+
+  const statusMap: Record<string, Rifa["status"]> = {
+    ATIVA: "ATIVA",
+    COMPLETA: "COMPLETA",
+    CANCELADA: "CANCELADA",
+    SORTEADA: "SORTEADA",
+    ENCERRADA: "COMPLETA",
+  }
+
+  const status: Rifa["status"] = statusMap[String(item.status || "ATIVA").toUpperCase()] || "ATIVA"
+
+  // Calcula numerosVendidos se não existir (compatibilidade com novo response)
+  const numerosVendidos = item.numerosVendidos !== undefined 
+    ? Number(item.numerosVendidos)
+    : (item.quantidadeNumeros && item.valorTotal && item.precoPorNumero)
+      ? Math.round(item.valorTotal / item.precoPorNumero)
+      : 0
+
+  return {
+    id: String(item.id),
+    usuarioId: String(item.usuarioId || ""),
+    nomeVendedor: String(item.nomeVendedor || ""),
+    emailVendedor: String(item.emailVendedor || ""),
+    titulo: String(item.titulo || item.nome || "Rifa"),
+    descricao: String(item.descricao || item.description || ""),
+    imagemUrl,
+    quantidadeNumeros: Number(item.quantidadeNumeros || item.qtdNumeros || 0),
+    precoPorNumero,
+    valorTotal: Number(item.valorTotal || 0),
+    status,
+    dataInicio: String(item.dataInicio || item.inicio || new Date().toISOString()),
+    dataLimite: String(item.dataLimite || item.dataFim || item.fim || new Date().toISOString()),
+    dataSorteio: item.dataSorteio ? String(item.dataSorteio) : undefined,
+    numeroVencedor: item.numeroVencedor ? Number(item.numeroVencedor) : undefined,
+    compradorVencedorId: item.compradorVencedorId ? String(item.compradorVencedorId) : undefined,
+    nomeVencedor: item.nomeVencedor ? String(item.nomeVencedor) : undefined,
+    sorteioAutomatico: Boolean(item.sorteioAutomatico),
+    sortearAoVenderTudo: Boolean(item.sortearAoVenderTudo),
+    dataCriacao: String(item.dataCriacao || new Date().toISOString()),
+    dataAtualizacao: String(item.dataAtualizacao || new Date().toISOString()),
+    tipo: item.tipo || item.tipoRifa || "PAGA_AUTOMATICA",
+    repassarTaxaCliente: Boolean(item.repassarTaxaCliente),
+    numerosVendidos,
+    vendedor: item.vendedor || item.seller || {
+      id: item.usuarioId || "0",
+      nome: item.nomeVendedor || "",
+      email: item.emailVendedor || "",
+      role: "VENDEDOR",
+    },
+  }
 }
 
 // Funções de autenticação
@@ -197,48 +286,8 @@ export async function getRifas(): Promise<Rifa[]> {
     const data = (await handleResponse(response)) as { content?: any[] } | any[]
     const items = Array.isArray(data) ? data : Array.isArray(data?.content) ? data.content : []
 
-    // Normaliza campos para compatibilidade (imagem, preço, status)
-    const normalized: Rifa[] = items.map((item: any) => {
-      const imagemUrl: string | undefined =
-        item.imagemUrl || item.imagem || item.image || item.imageUrl || undefined
-
-      const precoPorNumero: number =
-        typeof item.precoPorNumero === "number"
-          ? item.precoPorNumero
-          : typeof item.valorNumero === "number"
-          ? item.valorNumero
-          : 0
-
-      // Mapeia possíveis status do backend para os esperados pelo front
-      const statusMap: Record<string, Rifa["status"]> = {
-        ATIVA: "ATIVA",
-        COMPLETA: "COMPLETA",
-        CANCELADA: "CANCELADA",
-        SORTEADA: "SORTEADA",
-        ENCERRADA: "COMPLETA", // compatibilidade
-      }
-
-      let status: Rifa["status"] = statusMap[String(item.status || "ATIVA").toUpperCase()] || "ATIVA"
-
-      return {
-        id: String(item.id),
-        titulo: String(item.titulo || item.nome || "Rifa"),
-        descricao: String(item.descricao || item.description || ""),
-        imagemUrl,
-        precoPorNumero,
-        quantidadeNumeros: Number(item.quantidadeNumeros || item.qtdNumeros || 0),
-        numerosVendidos: Number(item.numerosVendidos || item.vendidos || 0),
-        dataInicio: String(item.dataInicio || item.inicio || new Date().toISOString()),
-        dataFim: String(item.dataFim || item.fim || new Date().toISOString()),
-        status,
-        vendedor: item.vendedor || item.seller || {
-          id: "0",
-          nome: "",
-          email: "",
-          role: "VENDEDOR",
-        },
-      } as Rifa
-    })
+    // Normaliza usando a função auxiliar
+    const normalized: Rifa[] = items.map((item: any) => normalizarRifa(item))
 
     return normalized
   } catch (error) {
@@ -399,7 +448,16 @@ export async function getEstatisticas(rifaId: string): Promise<{
 
   try {
     const response = await fetch(`${API_BASE_URL}/rifas/${rifaId}/estatisticas`)
-    return handleResponse(response)
+    const data = (await handleResponse(response)) as any
+    
+    // Normaliza para garantir que numerosVendidos sempre é um número
+    return {
+      totalNumeros: Number(data?.totalNumeros ?? 0),
+      numerosVendidos: Number(data?.numerosVendidos ?? 0),
+      numerosDisponiveis: Number(data?.numerosDisponiveis ?? 0),
+      valorArrecadado: Number(data?.valorArrecadado ?? 0),
+      percentualVendido: Number(data?.percentualVendido ?? 0),
+    }
   } catch (error) {
     console.error("[v0] Erro ao buscar estatísticas:", error)
     enableMockMode()
@@ -415,11 +473,10 @@ export async function reservarNumeros(
     quantidade: number
     numeros?: number[]
   },
-): Promise<Compra> {
+): Promise<ReservaResponse> {  // ✅ Mudou de Compra para ReservaResponse
   try {
     const url = `${API_BASE_URL}/compras/reservar`
     const bodyString = JSON.stringify(data)
-    // Log request details (without token)
     console.debug('[v0] POST %s body: %s', url, bodyString)
 
     const response = await fetch(url, {
@@ -430,30 +487,59 @@ export async function reservarNumeros(
       },
       body: bodyString,
     })
-    // Captura o Location antes de ler o corpo
+
     const locationHeader = response.headers.get("Location") || response.headers.get("location")
+    const parsed = await handleResponse<any>(response)
 
-    // Usa o handler padrão para tratar erros e parsear JSON quando houver
-    const parsed = await (async () => {
-      try {
-        return await handleResponse<Compra | any>(response)
-      } catch (e) {
-        throw e
-      }
-    })()
+    // ✅ Extrai compraId de forma mais robusta
+    let compraId: string = 
+      parsed?.compraId || 
+      parsed?.id || 
+      parsed?.data?.compraId || 
+      parsed?.data?.id ||
+      (locationHeader?.match(/[0-9a-fA-F-]{36}$/)?.[0]) || 
+      ''
 
-    // Garante que teremos um ID válido da compra: tenta body.id/body.compraId e, se faltar, extrai do Location
-    let compraId: string | undefined = parsed?.id || parsed?.compraId || parsed?.data?.id
-    if (!compraId && locationHeader) {
-      const match = locationHeader.match(/[0-9a-fA-F-]{36}$/)
-      if (match) compraId = match[0]
+    if (!compraId) {
+      console.error('[v0] Não foi possível extrair compraId da resposta:', parsed)
+      throw new Error('Resposta inválida do servidor: compraId não encontrado')
     }
 
-    if (compraId) {
-      return { ...(parsed || {}), id: String(compraId) } as Compra
+    // ✅ Normaliza a resposta para o formato ReservaResponse
+    const reserva: ReservaResponse = {
+      compraId: compraId,
+      rifaId: parsed.rifaId || data.rifaId,
+      tituloRifa: parsed.tituloRifa || parsed.rifa?.titulo || '',
+      tipoRifa: parsed.tipoRifa || parsed.tipo || 'PAGA_AUTOMATICA',
+      quantidadeNumeros: parsed.quantidadeNumeros || data.quantidade,
+      numeros: parsed.numeros || [],
+      valorTotal: parsed.valorTotal || 0,
+      status: parsed.status || 'PENDENTE',
+      dataExpiracao: parsed.dataExpiracao,
+      minutosParaExpirar: parsed.minutosParaExpirar,
+      
+      // ✅ Garante que pagamentoManual existe se for PAGA_MANUAL
+      pagamentoManual: parsed.pagamentoManual ? {
+        chavePix: parsed.pagamentoManual.chavePix || '',
+        nomeVendedor: parsed.pagamentoManual.nomeVendedor || '',
+        emailVendedor: parsed.pagamentoManual.emailVendedor || '',
+        valor: parsed.pagamentoManual.valor || parsed.valorTotal || 0,
+        mensagem: parsed.pagamentoManual.mensagem || 'Envie o comprovante após realizar o pagamento'
+      } : undefined,
+
+      // ✅ Garante que pagamento existe se houver
+      pagamento: parsed.pagamento ? {
+        id: parsed.pagamento.id,
+        qrCode: parsed.pagamento.qrCode || parsed.pagamento.qrCodeBase64 || '',
+        qrCodePayload: parsed.pagamento.qrCodePayload || parsed.pagamento.txid || '',
+        status: parsed.pagamento.status || 'AGUARDANDO',
+        dataExpiracao: parsed.pagamento.dataExpiracao || parsed.dataExpiracao || ''
+      } : undefined
     }
 
-    return parsed as Compra
+    console.debug('[v0] ReservaResponse normalizada:', reserva)
+    return reserva
+
   } catch (error) {
     console.error("[v0] Erro ao reservar números:", error)
     throw error
@@ -545,6 +631,91 @@ export async function getMinhasCompras(token: string): Promise<Compra[]> {
     return handleResponse(response)
   } catch (error) {
     console.error("[v0] Erro ao buscar compras:", error)
+    throw error
+  }
+}
+
+// Função para buscar comprovantes pendentes de uma rifa específica
+export async function getComprovantesPendentes(token: string, rifaId: string): Promise<Compra[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/compras/rifa/${rifaId}/pendentes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await handleResponse<any>(response)
+    // Se for paginado, retorna o content array, senão retorna o array direto
+    return Array.isArray(data) ? data : (data?.content || [])
+  } catch (error) {
+    console.error("[v0] Erro ao buscar comprovantes pendentes:", error)
+    throw error
+  }
+}
+
+// Função para aprovar compra
+export async function aprovarCompra(
+  token: string,
+  compraId: string,
+  observacao?: string,
+): Promise<void> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/compras/${compraId}/aprovar`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ observacao: observacao || "" }),
+    })
+    
+    if (!response.ok) {
+      let errorMessage = "Erro ao aprovar compra"
+      try {
+        const contentType = response.headers.get("content-type")
+        if (contentType?.includes("application/json")) {
+          const errorData = await response.json()
+          errorMessage = errorData.message || errorData.error || errorMessage
+        }
+      } catch {
+        errorMessage = `Erro ${response.status}: ${response.statusText}`
+      }
+      throw new Error(errorMessage)
+    }
+  } catch (error) {
+    console.error("[v0] Erro ao aprovar compra:", error)
+    throw error
+  }
+}
+
+// Função para rejeitar compra
+export async function rejeitarCompra(
+  token: string,
+  compraId: string,
+  observacao?: string,
+): Promise<void> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/compras/${compraId}/rejeitar`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ observacao: observacao || "" }),
+    })
+    
+    if (!response.ok) {
+      let errorMessage = "Erro ao rejeitar compra"
+      try {
+        const contentType = response.headers.get("content-type")
+        if (contentType?.includes("application/json")) {
+          const errorData = await response.json()
+          errorMessage = errorData.message || errorData.error || errorMessage
+        }
+      } catch {
+        errorMessage = `Erro ${response.status}: ${response.statusText}`
+      }
+      throw new Error(errorMessage)
+    }
+  } catch (error) {
+    console.error("[v0] Erro ao rejeitar compra:", error)
     throw error
   }
 }
@@ -706,6 +877,70 @@ export async function cancelarRifa(
     console.error("[v0] Erro ao cancelar rifa:", error)
     throw error
   }
+}
+
+// ==============================================
+// FUNÇÕES UTILITÁRIAS (Refatoradas)
+// ==============================================
+
+/**
+ * Validar arquivo antes de enviar
+ */
+export function validarArquivo(
+  file: File
+): {
+  valid: boolean
+  errors: string[]
+} {
+  const errors: string[] = []
+
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp"]
+  if (!allowedTypes.includes(file.type)) {
+    errors.push("Apenas arquivos JPG, PNG ou WEBP são permitidos")
+  }
+
+  const maxSize = 5 * 1024 * 1024 // 5MB
+  if (file.size > maxSize) {
+    errors.push("Arquivo deve ter no máximo 5MB")
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
+}
+
+/**
+ * Formatar data para exibição
+ */
+export function formatarData(dataISO: string): string {
+  return new Date(dataISO).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+/**
+ * Calcular tempo restante até expiração
+ */
+export function calcularTempoRestante(dataExpiracao: string): string {
+  const agora = new Date()
+  const expira = new Date(dataExpiracao)
+  const diff = expira.getTime() - agora.getTime()
+
+  if (diff <= 0) return "Expirado"
+
+  const minutos = Math.floor(diff / 60000)
+  const horas = Math.floor(minutos / 60)
+  const mins = minutos % 60
+
+  if (horas > 0) {
+    return `${horas}h ${mins}min`
+  }
+  return `${mins} minutos`
 }
 
 // Função auxiliar para tratar respostas da API

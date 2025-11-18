@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { ShoppingCart, Lock } from "lucide-react"
-import { type Rifa, reservarNumeros, gerarPagamentoPix } from "@/lib/api"
+import { type Rifa, type ReservaResponse, reservarNumeros, gerarPagamentoPix } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { SERVER_PROPS_GET_INIT_PROPS_CONFLICT } from "next/dist/lib/constants"
 
 interface OrderSummaryProps {
   rifa: Rifa
@@ -43,51 +44,60 @@ export function OrderSummary({ rifa, numerosSelecionados, onClearNumeros }: Orde
         numeros: numerosSelecionados.length > 0 ? numerosSelecionados : undefined,
       }
 
-      // Log payload sent to reservarNumeros (não inclui token)
       console.debug('[v0] reservarNumeros payload:', payload)
 
-  const compra = await reservarNumeros(token, payload)
-  // Log response from reservarNumeros
-  console.debug('[v0] reservarNumeros response:', compra)
-      // Decide next step based on rifa type
-      switch (rifa.tipo) {
-        case "PAGA_AUTOMATICA": {
-          // Generate PIX payment and go to checkout with payment info
-          // Log attempt to generate PIX for this compra
-          console.debug('[v0] gerarPagamentoPix request for compraId:', compra.id)
-          const pagamentoResp = await gerarPagamentoPix(token, compra.id)
-          // pagamentoResp pode ser PagamentoPixResponse ou FallbackPagamentoResponse
-          const nextId = (pagamentoResp as any).compraId || compra.id
+      // ✅ Agora recebe ReservaResponse diretamente
+      const reserva = await reservarNumeros(token, payload)
+      console.debug('[v0] reservarNumeros response:', reserva)
 
-          // If backend returned a fallback (service unavailable) with manual payment data,
-          // persist it to localStorage so the checkout page can show instructions.
+      // ✅ Lógica simplificada baseada no tipo da rifa
+      switch (reserva.tipoRifa) {
+        case "PAGA_AUTOMATICA": {
           try {
-            const maybeFallback = pagamentoResp as any
-            console.debug('[v0] gerarPagamentoPix response:', maybeFallback)
-            if (maybeFallback && maybeFallback.erro) {
+            console.debug('[v0] Gerando pagamento PIX para compraId:', reserva.compraId)
+            const pagamentoResp = await gerarPagamentoPix(token, reserva.compraId)
+            console.debug('[v0] gerarPagamentoPix response:', pagamentoResp)
+
+            // ✅ Verifica se é fallback (serviço indisponível)
+            if ('erro' in pagamentoResp) {
+              // Salva dados de fallback no localStorage
               try {
-                localStorage.setItem(`pagamento_fallback_${compra.id}`, JSON.stringify(maybeFallback))
-                console.debug('[v0] fallback stored for compraId=', compra.id)
+                localStorage.setItem(
+                  `pagamento_fallback_${reserva.compraId}`,
+                  JSON.stringify(pagamentoResp)
+                )
+                console.debug('[v0] Fallback salvo no localStorage')
               } catch (e) {
-                console.debug('[v0] failed to store fallback in localStorage', e)
+                console.warn('[v0] Erro ao salvar fallback:', e)
               }
             }
-          } catch (e) {
-            console.debug('[v0] error inspecting pagamentoResp', e)
+          } catch (error) {
+            console.error('[v0] Erro ao gerar pagamento PIX:', error)
+            // Continua para o checkout mesmo com erro
           }
 
-          router.push(`/checkout/${nextId}`)
+          router.push(`/checkout/${reserva.compraId}`)
           break
         }
+
         case "PAGA_MANUAL": {
-          // For manual payments, backend expects user to follow manual instructions in checkout
-          router.push(`/checkout/${compra.id}`)
+          // ✅ Para pagamento manual, salva reserva no localStorage e redireciona
+          try {
+            localStorage.setItem(
+              `reserva_manual_${reserva.compraId}`,
+              JSON.stringify(reserva)
+            )
+            console.debug('[v0] Reserva PAGA_MANUAL salva no localStorage')
+          } catch (e) {
+            console.warn('[v0] Erro ao salvar reserva manual:', e)
+          }
+          router.push(`/checkout/pagamento-manual/${reserva.compraId}`)
           break
         }
+
         case "GRATUITA":
         default: {
-          // Free participation: redirect to checkout (should show confirmed numbers)
-          router.push(`/checkout/${compra.id}`)
+          router.push(`/checkout/${reserva.compraId}`)
           break
         }
       }

@@ -247,7 +247,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <div>
                             <span className="text-gray-500">Encerra em:</span>
-                            <p className="font-medium">{formatDate(rifa.dataFim)}</p>
+                            <p className="font-medium">{formatDate(rifa.dataLimite)}</p>
                           </div>
                         </div>
                       </div>
