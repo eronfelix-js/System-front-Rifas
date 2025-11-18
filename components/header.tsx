@@ -71,7 +71,6 @@ export function Header() {
                     <DropdownMenuItem asChild>
                         <Link href="/comprovante" className="cursor-pointer">
                           <FileUp className="mr-2 h-4 w-4" />
-                      
                           Comprovantes
                         </Link>
                       </DropdownMenuItem>

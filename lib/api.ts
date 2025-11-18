@@ -1,4 +1,4 @@
-const API_BASE_URL =  "http://localhost:8080/api/v1"
+const API_BASE_URL = "http://localhost:8080/api/v1"
 
 // Tipos baseados na API
 export type RoleUsuario = "CLIENTE" | "VENDEDOR" | "ADMIN"
@@ -75,7 +75,52 @@ export interface Compra {
   }
 }
 
-export interface ReservaResponse{
+/**
+ * Response de compra do backend - usado para comprovantes
+ */
+export interface CompraResponse {
+  id: string
+  rifaId: string
+  tituloRifa: string
+  compradorId: string
+  nomeComprador: string
+  status: "PENDENTE" | "PAGO" | "CANCELADO" | "EXPIRADO"
+  valorTotal: number
+  quantidadeNumeros: number
+  numeros: number[]
+  dataExpiracao: string
+  dataCriacao: string
+  dataAtualizacao: string
+  comprovanteUrl: string | null
+  dataUploadComprovante: string | null
+  dataConfirmacao: string | null
+  observacaoVendedor: string | null
+}
+
+/**
+ * Response paginado de compras
+ */
+export interface PagedResponse<T> {
+  content: T[]
+  pageable: {
+    pageNumber: number
+    pageSize: number
+    sort: any
+    offset: number
+    paged: boolean
+    unpaged: boolean
+  }
+  totalPages: number
+  totalElements: number
+  last: boolean
+  size: number
+  number: number
+  first: boolean
+  numberOfElements: number
+  empty: boolean
+}
+
+export interface ReservaResponse {
   compraId: string;
   rifaId: string;
   tituloRifa: string;
@@ -87,7 +132,7 @@ export interface ReservaResponse{
   dataExpiracao?: string;
   minutosParaExpirar?: number;
 
-   // Para rifas PAGA_MANUAL
+  // Para rifas PAGA_MANUAL
   pagamentoManual?: {
     chavePix: string;
     nomeVendedor: string;
@@ -95,7 +140,7 @@ export interface ReservaResponse{
     valor: number;
     mensagem: string;
   };
-  
+
   // Para rifas PAGA_AUTOMATICA
   pagamento?: {
     id: string;
@@ -179,8 +224,8 @@ function normalizarRifa(item: any): Rifa {
     typeof item.precoPorNumero === "number"
       ? item.precoPorNumero
       : typeof item.valorNumero === "number"
-      ? item.valorNumero
-      : 0
+        ? item.valorNumero
+        : 0
 
   const statusMap: Record<string, Rifa["status"]> = {
     ATIVA: "ATIVA",
@@ -193,7 +238,7 @@ function normalizarRifa(item: any): Rifa {
   const status: Rifa["status"] = statusMap[String(item.status || "ATIVA").toUpperCase()] || "ATIVA"
 
   // Calcula numerosVendidos se não existir (compatibilidade com novo response)
-  const numerosVendidos = item.numerosVendidos !== undefined 
+  const numerosVendidos = item.numerosVendidos !== undefined
     ? Number(item.numerosVendidos)
     : (item.quantidadeNumeros && item.valorTotal && item.precoPorNumero)
       ? Math.round(item.valorTotal / item.precoPorNumero)
@@ -344,14 +389,14 @@ export async function criarRifa(
 ): Promise<Rifa> {
   try {
     console.log(`[v0] Criando rifa com endpoint unificado...`)
-    
+
     const formData = new FormData()
-    
+
     // Adiciona os dados da rifa como JSON
     const rifaData = new Blob([JSON.stringify(data)], { type: 'application/json' });
     formData.append("rifa", rifaData)
     console.log(`[v0] Dados da rifa:`, rifaData)
-    
+
     // Adiciona a imagem se fornecida
     if (imagem) {
       formData.append("imagem", imagem)
@@ -369,12 +414,12 @@ export async function criarRifa(
     // Usar XMLHttpRequest para melhor controle do FormData
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      
+
       xhr.open('POST', `${API_BASE_URL}/rifas`, true)
       xhr.setRequestHeader('Authorization', `Bearer ${token}`)
       // NÃO definir Content-Type - deixar o navegador definir automaticamente
-      
-      xhr.onload = function() {
+
+      xhr.onload = function () {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const result = JSON.parse(xhr.responseText)
@@ -396,20 +441,20 @@ export async function criarRifa(
           reject(new Error(errorMessage))
         }
       }
-      
-      xhr.onerror = function() {
+
+      xhr.onerror = function () {
         console.error("[v0] Erro de rede:", xhr.statusText)
         reject(new Error("Erro de rede"))
       }
-      
-      xhr.ontimeout = function() {
+
+      xhr.ontimeout = function () {
         console.error("[v0] Timeout da requisição")
         reject(new Error("Timeout da requisição"))
       }
-      
+
       // Definir timeout de 30 segundos
       xhr.timeout = 30000
-      
+
       // Enviar o FormData
       xhr.send(formData)
     })
@@ -449,7 +494,7 @@ export async function getEstatisticas(rifaId: string): Promise<{
   try {
     const response = await fetch(`${API_BASE_URL}/rifas/${rifaId}/estatisticas`)
     const data = (await handleResponse(response)) as any
-    
+
     // Normaliza para garantir que numerosVendidos sempre é um número
     return {
       totalNumeros: Number(data?.totalNumeros ?? 0),
@@ -492,12 +537,12 @@ export async function reservarNumeros(
     const parsed = await handleResponse<any>(response)
 
     // ✅ Extrai compraId de forma mais robusta
-    let compraId: string = 
-      parsed?.compraId || 
-      parsed?.id || 
-      parsed?.data?.compraId || 
+    let compraId: string =
+      parsed?.compraId ||
+      parsed?.id ||
+      parsed?.data?.compraId ||
       parsed?.data?.id ||
-      (locationHeader?.match(/[0-9a-fA-F-]{36}$/)?.[0]) || 
+      (locationHeader?.match(/[0-9a-fA-F-]{36}$/)?.[0]) ||
       ''
 
     if (!compraId) {
@@ -517,7 +562,7 @@ export async function reservarNumeros(
       status: parsed.status || 'PENDENTE',
       dataExpiracao: parsed.dataExpiracao,
       minutosParaExpirar: parsed.minutosParaExpirar,
-      
+
       // ✅ Garante que pagamentoManual existe se for PAGA_MANUAL
       pagamentoManual: parsed.pagamentoManual ? {
         chavePix: parsed.pagamentoManual.chavePix || '',
@@ -601,7 +646,7 @@ export async function gerarPagamentoPix(token: string, compraId: string): Promis
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     })
-  const handled = await handleResponse<PagamentoPixResponse | FallbackPagamentoResponse>(response)
+    const handled = await handleResponse<PagamentoPixResponse | FallbackPagamentoResponse>(response)
     // Log response body
     console.debug('[v0] POST %s response: %o', url, handled)
     return handled
@@ -636,14 +681,20 @@ export async function getMinhasCompras(token: string): Promise<Compra[]> {
 }
 
 // Função para buscar comprovantes pendentes de uma rifa específica
-export async function getComprovantesPendentes(token: string, rifaId: string): Promise<Compra[]> {
+export async function getComprovantesPendentes(
+  token: string,
+  rifaId: string,
+  page: number = 0,
+  size: number = 20
+): Promise<PagedResponse<CompraResponse>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/compras/rifa/${rifaId}/pendentes`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    const data = await handleResponse<any>(response)
-    // Se for paginado, retorna o content array, senão retorna o array direto
-    return Array.isArray(data) ? data : (data?.content || [])
+    const response = await fetch(
+      `${API_BASE_URL}/compras/rifa/${rifaId}/pendentes?page=${page}&size=${size}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    )
+    return handleResponse<PagedResponse<CompraResponse>>(response)
   } catch (error) {
     console.error("[v0] Erro ao buscar comprovantes pendentes:", error)
     throw error
@@ -665,7 +716,8 @@ export async function aprovarCompra(
       },
       body: JSON.stringify({ observacao: observacao || "" }),
     })
-    
+    console.log("STATUS:", response.status)
+    console.log("BODY:", await response.text())
     if (!response.ok) {
       let errorMessage = "Erro ao aprovar compra"
       try {
@@ -700,7 +752,7 @@ export async function rejeitarCompra(
       },
       body: JSON.stringify({ observacao: observacao || "" }),
     })
-    
+
     if (!response.ok) {
       let errorMessage = "Erro ao rejeitar compra"
       try {
@@ -776,7 +828,7 @@ export async function uploadImagemRifa(
     if (!response.ok) {
       const errorText = await response.text()
       console.error(`[v0] Erro HTTP ${response.status}:`, errorText)
-      
+
       let errorMessage = `Erro ${response.status}: ${response.statusText}`
       try {
         const errorData = JSON.parse(errorText)
@@ -784,7 +836,7 @@ export async function uploadImagemRifa(
       } catch {
         // Se não conseguir fazer parse do JSON, usa a mensagem padrão
       }
-      
+
       throw new Error(errorMessage)
     }
 
